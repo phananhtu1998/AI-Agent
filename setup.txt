@@ -1,0 +1,6 @@
+uvicorn
+a2a-sdk[http-server]
+python-dotenv
+fastapi
+starlette
+sse-starlette
