@@ -5,3 +5,4 @@ fastapi
 starlette
 sse-starlette
 google-generativeai
+httpx

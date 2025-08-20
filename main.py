@@ -9,7 +9,7 @@ from a2a.types import (
     AgentSkill,
 )
 from agent_executor import (
-    HelloWorldAgentExecutor,  # type: ignore[import-untyped]
+    RouterAgentExecutor,  # type: ignore[import-untyped]
 )
 
 from starlette.responses import HTMLResponse  # type: ignore[import-not-found]
@@ -18,32 +18,32 @@ from starlette.middleware.cors import CORSMiddleware  # type: ignore[import-not-
 
 
 if __name__ == '__main__':
-    skill = AgentSkill(
-        id='hello_world',
-        name='Returns hello world',
-        description='just returns hello world',
-        tags=['hello world'],
-        examples=['hi', 'hello world'],
+    chat_skill = AgentSkill(
+        id='chat',
+        name='Chat tổng quát (Gemini)',
+        description='Trả lời câu hỏi chung qua Gemini',
+        tags=['chat', 'gemini'],
+        examples=['Xin chào', 'giải thích về AI'],
     )
 
-    extended_skill = AgentSkill(
-        id='super_hello_world',
-        name='Returns a SUPER Hello World',
-        description='A more enthusiastic greeting, only for authenticated users.',
-        tags=['hello world', 'super', 'extended'],
-        examples=['super hi', 'give me a super hello'],
+    weather_skill = AgentSkill(
+        id='weather',
+        name='Thời tiết theo tỉnh/thành',
+        description='Hỏi thời tiết; yêu cầu nêu rõ tỉnh/thành',
+        tags=['weather', 'thời tiết'],
+        examples=['Thời tiết Hà Nội', 'Thời tiết ở Đà Nẵng hôm nay'],
     )
 
     # This will be the public-facing agent card
     public_agent_card = AgentCard(
-        name='Hello World Agent',
-        description='Just a hello world agent',
+        name='Router Agent',
+        description='Điều phối giữa chat (Gemini) và thời tiết',
         url='http://localhost:9999/',
         version='1.0.0',
         default_input_modes=['text'],
         default_output_modes=['text'],
         capabilities=AgentCapabilities(streaming=True),
-        skills=[skill],  # Only the basic skill for the public card
+        skills=[chat_skill, weather_skill],
         supports_authenticated_extended_card=True,
     )
 
@@ -51,20 +51,17 @@ if __name__ == '__main__':
     # It includes the additional 'extended_skill'
     specific_extended_agent_card = public_agent_card.model_copy(
         update={
-            'name': 'Hello World Agent - Extended Edition',  # Different name for clarity
-            'description': 'The full-featured hello world agent for authenticated users.',
+            'name': 'Router Agent - Extended',
+            'description': 'Phiên bản đầy đủ cho người dùng xác thực',
             'version': '1.0.1',  # Could even be a different version
             # Capabilities and other fields like url, default_input_modes, default_output_modes,
             # supports_authenticated_extended_card are inherited from public_agent_card unless specified here.
-            'skills': [
-                skill,
-                extended_skill,
-            ],  # Both skills for the extended card
+            'skills': [chat_skill, weather_skill],
         }
     )
 
     request_handler = DefaultRequestHandler(
-        agent_executor=HelloWorldAgentExecutor(),
+        agent_executor=RouterAgentExecutor(),
         task_store=InMemoryTaskStore(),
     )
 
