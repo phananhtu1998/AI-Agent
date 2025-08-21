@@ -3,18 +3,12 @@ import uvicorn
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
-from a2a.types import (
-    AgentCapabilities,
-    AgentCard,
-    AgentSkill,
-)
-from agent_executor import (
-    RouterAgentExecutor,  # type: ignore[import-untyped]
-)
+from a2a.types import AgentCapabilities, AgentCard, AgentSkill
+from agent_executor import RouterAgentExecutor  # type: ignore[import-untyped]
 
-from starlette.responses import HTMLResponse  # type: ignore[import-not-found]
-from starlette.routing import Route  # type: ignore[import-not-found]
-from starlette.middleware.cors import CORSMiddleware  # type: ignore[import-not-found]
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 
 if __name__ == '__main__':
@@ -34,7 +28,7 @@ if __name__ == '__main__':
         examples=['Thời tiết Hà Nội', 'Thời tiết ở Đà Nẵng hôm nay'],
     )
 
-    # This will be the public-facing agent card
+    # Public-facing agent card
     public_agent_card = AgentCard(
         name='Router Agent',
         description='Điều phối giữa chat (Gemini) và thời tiết',
@@ -47,15 +41,12 @@ if __name__ == '__main__':
         supports_authenticated_extended_card=True,
     )
 
-    # This will be the authenticated extended agent card
-    # It includes the additional 'extended_skill'
+    # Authenticated extended agent card
     specific_extended_agent_card = public_agent_card.model_copy(
         update={
             'name': 'Router Agent - Extended',
             'description': 'Phiên bản đầy đủ cho người dùng xác thực',
-            'version': '1.0.1',  # Could even be a different version
-            # Capabilities and other fields like url, default_input_modes, default_output_modes,
-            # supports_authenticated_extended_card are inherited from public_agent_card unless specified here.
+            'version': '1.0.1',
             'skills': [chat_skill, weather_skill],
         }
     )
@@ -71,10 +62,12 @@ if __name__ == '__main__':
         extended_agent_card=specific_extended_agent_card,
     )
 
-    # Build the Starlette app and mount a simple chat UI at /chat
-    app = server.build()
+    # Build Starlette app rồi bọc lại bằng FastAPI
+    starlette_app = server.build()
+    app = FastAPI()
+    app.mount("/", starlette_app)  # giữ nguyên tất cả route của A2A
 
-    # Enable CORS for browser clients (including file:// null origin)
+    # Enable CORS
     app.add_middleware(
         CORSMiddleware,
         allow_origins=['*'],
@@ -83,14 +76,14 @@ if __name__ == '__main__':
         allow_credentials=False,
     )
 
-    async def chat_page(request):  # type: ignore[no-untyped-def]
+    # Route /chat theo kiểu FastAPI decorator
+    @app.get("/chat", response_class=HTMLResponse)
+    async def chat_page(request: Request):
         try:
-            with open('chat.html', 'r', encoding='utf-8') as f:
+            with open("chat.html", "r", encoding="utf-8") as f:
                 html = f.read()
         except Exception:
-            html = '<!doctype html><html><body><p>chat.html not found.</p></body></html>'
+            html = "<!doctype html><html><body><p>chat.html not found.</p></body></html>"
         return HTMLResponse(html)
 
-    app.routes.append(Route('/chat', chat_page, methods=['GET']))
-
-    uvicorn.run(app, host='0.0.0.0', port=9999)
+    uvicorn.run(app, host="0.0.0.0", port=9999)
