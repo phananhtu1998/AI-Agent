@@ -17,6 +17,12 @@
       button { padding: 10px 14px; border-radius: 8px; border: 1px solid #3a5; background: #1a3; color: white; cursor: pointer; }
       button:disabled { opacity: 0.6; cursor: not-allowed; }
       .meta { color: #8aa; font-size: 12px; margin-top: 2px; }
+      .typing-indicator { display: none; padding: 10px 12px; border-radius: 10px; margin: 8px 0; max-width: 80%; background: #162036; margin-right: auto; }
+      .typing-dots { display: inline-flex; align-items: center; gap: 4px; }
+      .typing-dot { width: 8px; height: 8px; border-radius: 50%; background: #8aa; animation: typing 1.4s infinite ease-in-out; }
+      .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+      .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+      @keyframes typing { 0%, 80%, 100% { transform: scale(0.8); opacity: 0.5; } 40% { transform: scale(1); opacity: 1; } }
     </style>
   </head>
   <body>
@@ -26,6 +32,13 @@
         <div class="meta">POST /.well-known endpoints available; RPC at /</div>
       </header>
       <div id="log"></div>
+      <div id="typing-indicator" class="typing-indicator">
+        <div class="typing-dots">
+          <div class="typing-dot"></div>
+          <div class="typing-dot"></div>
+          <div class="typing-dot"></div>
+        </div>
+      </div>
       <form id="chat-form">
         <input id="text" type="text" placeholder="Type a message..." autocomplete="off" />
         <button id="send" type="submit">Send</button>
@@ -38,9 +51,19 @@
       const input = document.getElementById('text');
       const sendBtn = document.getElementById('send');
       const streamBtn = document.getElementById('stream');
+      const typingIndicator = document.getElementById('typing-indicator');
 
       // Support both http:// and file:// usage
       const API_BASE = location.protocol === 'file:' ? 'http://localhost:9999' : '';
+
+      function showTypingIndicator() {
+        typingIndicator.style.display = 'block';
+        log.scrollTop = log.scrollHeight;
+      }
+
+      function hideTypingIndicator() {
+        typingIndicator.style.display = 'none';
+      }
 
       function addMessage(role, text) {
         const div = document.createElement('div');
@@ -59,6 +82,7 @@
       }
 
       async function sendMessage(text) {
+        showTypingIndicator();
         const body = {
           id: uuid(),
           jsonrpc: '2.0',
@@ -80,6 +104,7 @@
         });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
+        hideTypingIndicator();
         // Show either a direct Message result or a Task wrapper
         const result = data.result || {};
         if (result.kind === 'message') {
@@ -101,6 +126,7 @@
       }
 
       async function streamMessage(text) {
+        showTypingIndicator();
         const body = {
           id: uuid(),
           jsonrpc: '2.0',
@@ -122,12 +148,14 @@
           body: JSON.stringify(body)
         });
         if (!res.ok || !res.body) {
+          hideTypingIndicator();
           throw new Error('Streaming HTTP ' + res.status);
         }
 
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
+        let hasReceivedData = false;
         const processBuffer = () => {
           // SSE events are separated by double newlines
           const events = buffer.split(/\n\n/);
@@ -142,6 +170,10 @@
               try {
                 const payload = JSON.parse(dataLines);
                 if (payload.type === 'agent_text_message' && payload.payload && payload.payload.text) {
+                  if (!hasReceivedData) {
+                    hideTypingIndicator();
+                    hasReceivedData = true;
+                  }
                   addMessage('agent', payload.payload.text);
                 }
                 // Stop reading if we see a terminal event shape
@@ -166,6 +198,8 @@
         // Flush any remaining buffered event
         buffer += decoder.decode();
         processBuffer();
+        // Ensure typing indicator is hidden at the end
+        hideTypingIndicator();
       }
 
       form.addEventListener('submit', async (e) => {
@@ -178,6 +212,7 @@
         try {
           await sendMessage(text);
         } catch (err) {
+          hideTypingIndicator();
           addMessage('agent', 'Error: ' + err.message);
         } finally {
           sendBtn.disabled = false; streamBtn.disabled = false;
@@ -193,6 +228,7 @@
         try {
           await streamMessage(text);
         } catch (err) {
+          hideTypingIndicator();
           addMessage('agent', 'Stream error: ' + err.message);
         } finally {
           streamBtn.disabled = false; sendBtn.disabled = false;
