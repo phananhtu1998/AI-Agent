@@ -8,3 +8,4 @@ google-generativeai
 httpx
 asyncpg
 redis
+colorama
