@@ -244,12 +244,17 @@ class WeatherAgentExecutor(AgentExecutor):
     GEOCODE_URL = 'https://geocoding-api.open-meteo.com/v1/search'
     WEATHER_URL = 'https://api.open-meteo.com/v1/forecast'
     
+    # Class-level shared cache for Vietnam locations
+    CLASS_LOCATIONS_CACHE: Dict[str, tuple] = {}
+    CLASS_CACHE_TIMESTAMP: float = 0.0
+    CLASS_CACHE_DURATION: float = 24 * 60 * 60  # 24 hours
+
     def __init__(self):
         super().__init__()
-        # Cache for Vietnamese locations
+        # Instance-level references (mirror class cache)
         self._vietnam_locations_cache = None
         self._cache_timestamp = 0
-        self._cache_duration = 24 * 60 * 60  # 24 hours in seconds
+        self._cache_duration = self.CLASS_CACHE_DURATION
         self._initialization_task = None
         
         # Fallback coordinates for major cities (backup)
@@ -288,8 +293,9 @@ class WeatherAgentExecutor(AgentExecutor):
             'vung tau': (10.3459, 107.0843, 'Vũng Tàu'),
         }
         
-        # Start initialization in background
-        self._start_initialization()
+        # Start initialization in background only if class cache is empty
+        if not type(self).CLASS_LOCATIONS_CACHE:
+            self._start_initialization()
 
     def _start_initialization(self):
         """Start background initialization of Vietnam locations."""
@@ -382,9 +388,12 @@ class WeatherAgentExecutor(AgentExecutor):
                 # Merge với fallback cities
                 all_locations = {**self.MAJOR_CITIES_FALLBACK, **locations}
                 
-                # Update cache
+                # Update class-level cache and instance mirror
+                now_ts = asyncio.get_event_loop().time()
+                type(self).CLASS_LOCATIONS_CACHE = all_locations
+                type(self).CLASS_CACHE_TIMESTAMP = now_ts
                 self._vietnam_locations_cache = all_locations
-                self._cache_timestamp = asyncio.get_event_loop().time()
+                self._cache_timestamp = now_ts
                 
                 print(f"DEBUG: Successfully fetched {len(all_locations)} locations")
                 return all_locations
@@ -392,23 +401,38 @@ class WeatherAgentExecutor(AgentExecutor):
         except Exception as e:
             print(f"DEBUG: Error fetching Vietnam provinces: {e}")
             # Fallback to static mapping
+            now_ts = asyncio.get_event_loop().time()
+            type(self).CLASS_LOCATIONS_CACHE = self.MAJOR_CITIES_FALLBACK
+            type(self).CLASS_CACHE_TIMESTAMP = now_ts
             self._vietnam_locations_cache = self.MAJOR_CITIES_FALLBACK
-            self._cache_timestamp = asyncio.get_event_loop().time()
+            self._cache_timestamp = now_ts
             return self.MAJOR_CITIES_FALLBACK
 
     async def _get_vietnam_locations(self) -> Dict[str, tuple]:
         """Lấy danh sách tỉnh/thành Việt Nam (cached)."""
         current_time = asyncio.get_event_loop().time()
         
-        # Kiểm tra cache
+        # Prefer class-level cache first
+        if (type(self).CLASS_LOCATIONS_CACHE and
+            current_time - type(self).CLASS_CACHE_TIMESTAMP < type(self).CLASS_CACHE_DURATION):
+            print("DEBUG: Using cached Vietnam locations (class-level)")
+            return type(self).CLASS_LOCATIONS_CACHE
+
+        # Fallback to instance cache
         if (self._vietnam_locations_cache is not None and 
             current_time - self._cache_timestamp < self._cache_duration):
-            print("DEBUG: Using cached Vietnam locations")
+            print("DEBUG: Using cached Vietnam locations (instance-level)")
             return self._vietnam_locations_cache
         
         # Nếu cache expired hoặc chưa có, fetch từ API
         print("DEBUG: Cache expired or not available, fetching from API...")
         return await self._fetch_vietnam_provinces()
+
+    @classmethod
+    async def preload_locations(cls) -> Dict[str, tuple]:
+        """Preload Vietnam locations into class-level cache (call at app startup)."""
+        tmp = cls()
+        return await tmp._fetch_vietnam_provinces()
 
     async def _refresh_locations_cache(self):
         """Refresh cache manually."""

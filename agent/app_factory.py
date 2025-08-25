@@ -7,8 +7,8 @@ from a2a.server.tasks import InMemoryTaskStore
 from agent_executor import IntentRouterAgentExecutor  # type: ignore[import-untyped]
 
 from .cards import create_public_agent_card, create_extended_agent_card
-from .routes import chat_page
 from .agent_executor_wrapper import wrap_agent_executor
+from agent_executor import WeatherAgentExecutor
 
 def create_request_handler() -> DefaultRequestHandler:
     """Tạo request handler cho agent với conversation logging"""

@@ -13,13 +13,16 @@ from agent import create_request_handler
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
+# Create a single request handler instance to avoid re-initializing agent/executors
+_request_handler = create_request_handler()
+
 @router.post("/", response_model=ChatResponse)
-async def chat_with_agent(request: ChatRequest, http_request: Request):
+async def chat_with_agent(payload: ChatRequest, http_request: Request):
     """
     API endpoint để chat với agent
     
     Args:
-        request: ChatRequest chứa message và metadata
+        payload: ChatRequest chứa message và metadata
         http_request: FastAPI Request object để lấy thông tin client
     
     Returns:
@@ -28,8 +31,8 @@ async def chat_with_agent(request: ChatRequest, http_request: Request):
     start_time = time.time()
     
     try:
-        # Tạo session_id nếu không có
-        session_id = request.session_id or str(uuid.uuid4())
+        # Sử dụng conversion_id như định danh hội thoại (thay cho session_id)
+        conversation_key = payload.conversion_id
         
         # Lấy thông tin client
         client_info = {
@@ -42,37 +45,33 @@ async def chat_with_agent(request: ChatRequest, http_request: Request):
         # Metadata kết hợp
         metadata = {
             "client_info": client_info,
-            "user_id": request.user_id,
+            "account_id": payload.account_id,
             "source": "api",
             "timestamp": time.time()
         }
         
-        if request.metadata:
-            metadata.update(request.metadata)
-        
         # Gọi agent executor để xử lý message
-        agent_response = await process_message_with_agent(request.message, session_id)
+        agent_response = await process_message_with_agent(payload.message, conversation_key)
         
         # Tính thời gian xử lý
         processing_time = time.time() - start_time
         
-        # Log conversation
+        # Log conversation (map conversation_key vào session_id trong service để tái sử dụng)
         conversation_id = str(uuid.uuid4())
         success = await log_agent_response(
-            session_id=session_id,
-            user_message=request.message,
+            session_id=conversation_key,
+            user_message=payload.message,
             agent_response=agent_response["response"],
             skill_used=agent_response.get("skill_used"),
             processing_time=processing_time,
             metadata=metadata
         )
         
-        # Trả về response
+        # Trả về response (không trả session_id)
         return ChatResponse(
             success=success,
             message="Chat processed successfully" if success else "Chat processed but logging failed",
             response=agent_response["response"],
-            session_id=session_id,
             skill_used=agent_response.get("skill_used"),
             processing_time=processing_time,
             conversation_id=conversation_id
@@ -85,8 +84,8 @@ async def chat_with_agent(request: ChatRequest, http_request: Request):
         
         try:
             await log_agent_response(
-                session_id=session_id if 'session_id' in locals() else str(uuid.uuid4()),
-                user_message=request.message,
+                session_id=conversation_key if 'conversation_key' in locals() else str(uuid.uuid4()),
+                user_message=payload.message if 'payload' in locals() else "",
                 agent_response=error_response,
                 skill_used="error",
                 processing_time=processing_time,
@@ -107,14 +106,14 @@ async def process_message_with_agent(message: str, session_id: str) -> Dict[str,
     
     Args:
         message: Tin nhắn từ user
-        session_id: ID của session
+        session_id: ID của session (dùng conversation_key)
     
     Returns:
         Dict chứa response và metadata
     """
     try:
-        # Tạo request handler với agent executor đã được wrap
-        request_handler = create_request_handler()
+        # Sử dụng request handler đã được khởi tạo một lần
+        request_handler = _request_handler
         
         # Gọi agent executor để xử lý message
         result = await request_handler.agent_executor.execute(

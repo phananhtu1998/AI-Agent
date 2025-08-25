@@ -4,7 +4,8 @@ Agent Executor Wrapper - Tự động log conversation khi agent sinh ra kết q
 
 import time
 import logging
-from typing import Dict, Any, Optional
+import inspect
+from typing import Dict, Any, Optional, List
 from service import log_agent_response
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,104 @@ class AgentExecutorWrapper:
         
         try:
             # Thực thi agent
-            result = await self.agent_executor.execute(user_message, **kwargs)
+            result: Dict[str, Any]
+
+            # Detect underlying executor signature. If it expects (context, event_queue), adapt.
+            sig = None
+            try:
+                sig = inspect.signature(self.agent_executor.execute)
+            except Exception:
+                sig = None
+
+            # Note: for bound methods, 'self' is not included -> expect 2 params (context, event_queue)
+            # For unbound methods, it may be 3 (self, context, event_queue)
+            if sig and len(sig.parameters) >= 2:
+                # Minimal shims to run A2A-style executors and capture output
+                class _DummyEventQueue:
+                    def __init__(self):
+                        self.events: List[Any] = []
+                    async def enqueue_event(self, evt):
+                        self.events.append(evt)
+                class _DummyContext:
+                    def __init__(self, text: str, context_id: str):
+                        self._text = text
+                        self.context_id = context_id
+                        self.task_id = None
+                    def get_user_input(self):
+                        return self._text
+                q = _DummyEventQueue()
+                ctx = _DummyContext(user_message, session_id)
+                await self.agent_executor.execute(ctx, q)  # type: ignore[arg-type]
+                # Extract all agent texts from queued events if available
+                collected_texts: List[str] = []
+                try:
+                    logger.debug(f"Agent event queue length: {len(q.events)}")
+                    for evt in q.events:
+                        logger.debug(f"Event type: {type(evt)}; has parts: {hasattr(evt, 'parts')}")
+                        parts = getattr(evt, 'parts', None)
+                        if not parts or not isinstance(parts, list):
+                            # Try direct text-like attributes
+                            for attr in ("text", "message", "content"):
+                                val = getattr(evt, attr, None)
+                                if val:
+                                    collected_texts.append(str(val))
+                                    break
+                            # Try dict-like event
+                            if hasattr(evt, 'get'):
+                                for key in ("text", "message", "content"):
+                                    try:
+                                        val = evt.get(key)
+                                        if val:
+                                            collected_texts.append(str(val))
+                                            break
+                                    except Exception:
+                                        pass
+                            # As last resort, use string repr if looks short
+                            try:
+                                s = str(evt)
+                                if s and len(s) < 500 and 'TaskStatusUpdateEvent' not in s:
+                                    collected_texts.append(s)
+                            except Exception:
+                                pass
+                            continue
+                        for part in parts:
+                            text_val = None
+                            # Direct attribute
+                            text_val = getattr(part, 'text', None)
+                            # Pydantic/BaseModel export
+                            if text_val is None:
+                                try:
+                                    if hasattr(part, 'model_dump'):
+                                        data = part.model_dump()
+                                        text_val = data.get('text') or data.get('content')
+                                    elif hasattr(part, 'dict'):
+                                        data = part.dict()  # type: ignore[attr-defined]
+                                        text_val = data.get('text') or data.get('content')
+                                except Exception:
+                                    pass
+                            # Dict
+                            if text_val is None and isinstance(part, dict):
+                                text_val = part.get('text') or part.get('content') or part.get('message')
+                            # Fallback: string cast if short
+                            if text_val is None:
+                                try:
+                                    s = str(part)
+                                    if s and len(s) < 500 and 'TaskStatusUpdateEvent' not in s:
+                                        text_val = s
+                                except Exception:
+                                    pass
+                            if text_val:
+                                collected_texts.append(str(text_val))
+                    agent_text = "\n".join(collected_texts).strip()
+                except Exception as ex:
+                    logger.warning(f"Could not extract agent text from events: {ex}")
+                    agent_text = ""
+                if not agent_text:
+                    logger.warning("No agent text extracted from events; returning fallback message.")
+                result = {"response": agent_text or "Không có nội dung phản hồi."}
+            else:
+                # Legacy/simple signature (user_message, **kwargs)
+                result = await self.agent_executor.execute(user_message, **kwargs)  # type: ignore[misc]
             
             # Tính thời gian xử lý
             processing_time = time.time() - start_time
