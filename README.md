@@ -99,13 +99,36 @@ python memory_demo.py
 ## Cấu trúc code
 
 ```
-AI-Agent/
-├── main.py                 # Server chính
-├── agent_executor.py       # Logic agent và memory
-├── chat.html              # Chat interface
-├── memory_demo.py         # Demo các memory systems
-├── requirements.txt       # Dependencies
-└── README.md             # Hướng dẫn này
+project/
+├── main.py                    # Entry point với FastAPI app
+├── agent/                     # Core agent logic
+│   ├── __init__.py           # Package exports
+│   ├── skills.py             # Skill definitions
+│   ├── cards.py              # Agent card definitions
+│   ├── app_factory.py        # A2A server factory
+│   ├── agent_executor_wrapper.py # Wrapper với logging
+│   ├── database.py           # Database operations
+│   └── routes.py             # HTML routes
+├── service/                   # Business logic layer
+│   ├── __init__.py           # Service exports
+│   └── conversation_service.py # Conversation business logic
+├── router/                    # API endpoints
+│   ├── __init__.py           # Router exports
+│   ├── chat_routes.py        # Chat API endpoints
+│   ├── conversation_routes.py # Conversation management
+│   └── health_routes.py      # Health checks
+├── middleware/                # Middleware
+│   └── cors/                 # CORS middleware
+│       └── cors.py           # CORS configuration
+└── initialize/                # Service initialization
+    ├── __init__.py           # Init exports
+    └── run.py                # Database connections
+```
+
+```
+HTTP Request → Router → Service → Agent → Database
+     ↑           ↓        ↓        ↓        ↓
+Response ← Router ← Service ← Agent ← Database
 ```
 
 ## Ví dụ sử dụng

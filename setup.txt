@@ -6,3 +6,5 @@ starlette
 sse-starlette
 google-generativeai
 httpx
+asyncpg
+redis
