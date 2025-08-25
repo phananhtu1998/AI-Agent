@@ -123,7 +123,18 @@ class AgentExecutorWrapper:
                     agent_text = ""
                 if not agent_text:
                     logger.warning("No agent text extracted from events; returning fallback message.")
-                result = {"response": agent_text or "Không có nội dung phản hồi."}
+                # Try to extract skill/intent from underlying executor if available
+                skill = None
+                try:
+                    underlying = getattr(self, 'agent_executor', None)
+                    # IntentRouterAgentExecutor exposes last_intent
+                    skill = getattr(underlying, 'last_intent', None)
+                except Exception:
+                    pass
+                result = {
+                    "response": agent_text or "Không có nội dung phản hồi.",
+                    "skill_used": skill or "unknown",
+                }
             else:
                 # Legacy/simple signature (user_message, **kwargs)
                 result = await self.agent_executor.execute(user_message, **kwargs)  # type: ignore[misc]

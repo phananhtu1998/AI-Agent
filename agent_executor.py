@@ -724,6 +724,8 @@ class IntentRouterAgentExecutor(AgentExecutor):
         self.weather = WeatherAgentExecutor()
         self.chat = GeminiAgentExecutor()
         self._intent_model = None  # Có thể cache Gemini hoặc model khác
+        # Lưu intent gần nhất để wrapper có thể đọc
+        self.last_intent: str | None = None
 
     async def _classify_intent(self, text: str, context_id: str = 'default') -> str:
         """Phân loại intent bằng Gemini API với context."""
@@ -818,6 +820,8 @@ Chỉ trả đúng 1 từ (weather hoặc chat).
         # Phân loại intent với context
         intent = await self._classify_intent(text, context_id)
         print(f"Intent: {intent} (Context ID: {context_id})")
+        # Ghi lại intent để bên ngoài có thể đọc
+        self.last_intent = intent
         
         if intent == "weather":
             await self.weather.execute(context, event_queue)
