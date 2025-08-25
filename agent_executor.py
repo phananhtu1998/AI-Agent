@@ -2,6 +2,7 @@ import inspect
 import os
 from uuid import uuid4
 from typing import Optional, Dict, List
+from datetime import datetime, timezone
 import asyncio
 
 import httpx  # type: ignore[import-not-found]
@@ -640,6 +641,7 @@ Tên địa danh chuẩn:
             'latitude': lat,
             'longitude': lon,
             'current': 'temperature_2m,weather_code',
+            'timezone': 'auto',  # use location's local timezone from API
         }
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.get(self.WEATHER_URL, params=params)
@@ -649,6 +651,8 @@ Tên địa danh chuẩn:
             cur = (j or {}).get('current') or {}
             temp = cur.get('temperature_2m')
             code = cur.get('weather_code')
+            api_time = cur.get('time')  # ISO 8601; already in local TZ per 'timezone=auto'
+            tz_name = (j or {}).get('timezone')
             # Map a few common codes; otherwise show code number
             codes = {
                 0: 'Trời quang',
@@ -667,7 +671,17 @@ Tên địa danh chuẩn:
             desc = codes.get(code, f'Mã thời tiết {code}')
             if temp is None:
                 return None
-            return f'Nhiệt độ hiện tại: {temp}°C — {desc}.'
+            # Compose source and API-provided local time only
+            source = 'open-meteo.com'
+            suffix_parts = []
+            if api_time:
+                if tz_name:
+                    suffix_parts.append(f'Thời gian: {api_time} ({tz_name})')
+                else:
+                    suffix_parts.append(f'Thời gian: {api_time}')
+            suffix_parts.append(f'Nguồn: {source}')
+            suffix = ' | '.join(suffix_parts)
+            return f'Nhiệt độ hiện tại: {temp}°C — {desc}. ({suffix})'
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         user_text = ''
